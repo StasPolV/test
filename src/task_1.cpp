@@ -31,14 +31,14 @@ MathRepresentation* createMathParallelepiped(const Color& color, double opacity)
 
     MbSweptData pCurves(placement, *pContour2D);
     MbVector3D extDir(0.0, 1.0, 0.0);
-    ExtrusionValues pExtParams(sideSize * 5.0, 0.0);
+    ExtrusionValues pExtParams(sideSize * 2.0, 0.0);
 
     MbSNameMaker names(1, MbSNameMaker::i_SideNone, 0);
     PArray<MbSNameMaker> contourNames(0, 1, false);
 
     MbSolid* pResSolid = nullptr;
-    bool result = ExtrusionSolid(pCurves, extDir, nullptr, nullptr, false, pExtParams, names, contourNames, pResSolid);
-    if (result) 
+    MbResultType result = ExtrusionSolid(pCurves, extDir, nullptr, nullptr, false, pExtParams, names, contourNames, pResSolid);
+    if (result == rt_Success && pResSolid != nullptr) 
     {
         parallelepiped->SetMathItem(static_cast<MbItem*>(pResSolid));
         if (MathGeometry* pGeometry = vobject_cast<MathGeometry*>(parallelepiped->GetGeomAt(0))) 
@@ -49,13 +49,23 @@ MathRepresentation* createMathParallelepiped(const Color& color, double opacity)
                 auto id = (*ids.begin());
                 Material* material = pGeometry->GetMaterialById(id);
                 Q_ASSERT(material != nullptr);
-                material->SetDiffuse(Color(255, 0, 0));
+                material->SetDiffuse(color);
                 material->SetOpacity(opacity);
             }
         }
     }
 
     return parallelepiped;
+}
+
+void createParallelepiped(SceneSegment* pRootSegment, const Color& color, double opacity) 
+{
+    MathRepresentation* pMathRep = createMathParallelepiped(color, opacity);
+    SceneSegment* pSegment = new SceneSegment(pRootSegment);
+
+    SegmentInstance* pSegmentData = new SegmentInstance(pMathRep);
+    SceneSegment* pSceneSeg = new SceneSegment(pSegmentData);
+    pSegment->AddSegment(pSceneSeg);
 }
 
 int main(int argc, char** argv)
@@ -74,7 +84,7 @@ int main(int argc, char** argv)
     scene.mainLight()->SetDoubleSided(true);
     scene.graphicsView()->SetSmoothTransition(true);
 
-
+    createParallelepiped(rootSegment, VSN::Color(255, 0, 0), 1.0);
 
     scene.viewport()->GetCamera()->SetViewOrientation(Orientation::IsoXYZ);
     scene.viewport()->ZoomToFit(scene.sceneContent()->GetBoundingBox());
