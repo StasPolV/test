@@ -8,10 +8,8 @@
 const double sideSize = 10.0;
 const double sideOffset = 2.0;
 
-MathRepresentation* createMathParallelepiped(const Color& color, double opacity) 
+SPtr<MbSolid> makeParallelepiped()
 {
-    MathRepresentation* parallelepiped = new MathRepresentation();
-    parallelepiped->SetBuildType(CommandType::Synchronous);
     MbContour* pContour2D = new MbContour();
 
     MbCartPoint p1(0.0, 0.0), p2(sideOffset, sideSize), p3(sideSize + sideOffset, sideSize), p4(sideSize, 0.0), p5(0.0, 0.0);
@@ -38,31 +36,15 @@ MathRepresentation* createMathParallelepiped(const Color& color, double opacity)
 
     MbSolid* pResSolid = nullptr;
     MbResultType result = ExtrusionSolid(pCurves, extDir, nullptr, nullptr, false, pExtParams, names, contourNames, pResSolid);
-    if (result == rt_Success && pResSolid != nullptr) 
-    {
-        parallelepiped->SetMathItem(static_cast<MbItem*>(pResSolid));
-        if (MathGeometry* pGeometry = vobject_cast<MathGeometry*>(parallelepiped->GetGeomAt(0))) 
-        {
-            if (pGeometry->GetMaterialCount() > 0) 
-            {
-                std::list<NodeKey> ids = pGeometry->GetMaterialIds();
-                auto id = (*ids.begin());
-                Material* material = pGeometry->GetMaterialById(id);
-                Q_ASSERT(material != nullptr);
-                material->SetDiffuse(color);
-                material->SetOpacity(opacity);
-            }
-        }
-    }
+    if (result != rt_Success)
+        return nullptr;
 
-    return parallelepiped;
+    return SPtr<MbSolid>(pResSolid);
 }
 
-MathRepresentation* createMathCylinder(const Color& color, double opacity) 
+SPtr<MbSolid> makeCylinder()
 {
     using namespace c3d;
-    MathRepresentation* cylinder = new MathRepresentation();
-    cylinder->SetBuildType(CommandType::Synchronous);
 
     SpacePointsVector points;
     points.reserve(3);
@@ -74,45 +56,39 @@ MathRepresentation* createMathCylinder(const Color& color, double opacity)
 
     MbElementarySolidParams params(ElementaryShellType::et_Cylinder, points, names);
     MbElementarySolidResults results;
-    if (ElementarySolid(params, results) == rt_Success && results.GetResultSolid() != nullptr) 
+    if (ElementarySolid(params, results) != rt_Success)
+        return nullptr;
+
+    return results.GetResultSolid();
+}
+
+void createObject(SceneSegment* pRootSegment, const SPtr<MbSolid>& solid, const Matrix3DF& moveRoot, const Color& color, double opacity) 
+{
+    if (!solid)
+        return;
+
+    MathRepresentation* pMathRep = new MathRepresentation();
+    pMathRep->SetBuildType(CommandType::Synchronous);
+    pMathRep->SetMathItem(solid.get());
+    pMathRep->SetVisualSag(0.001, true);
+
+    if (MathGeometry* pGeometry = vobject_cast<MathGeometry*>(pMathRep->GetGeomAt(0)))
     {
-        MbSolid* pSolid = results.GetResultSolid();
-        cylinder->SetMathItem(static_cast<MbItem*>(pSolid));
-        cylinder->SetVisualSag(0.001, true);
-        if (MathGeometry* pGeometry = vobject_cast<MathGeometry*>(cylinder->GetGeomAt(0)))
+        if (pGeometry->GetMaterialCount() > 0)
         {
-            if (pGeometry->GetMaterialCount() > 0)
-            {
-                std::list<NodeKey> ids = pGeometry->GetMaterialIds();
-                auto id = (*ids.begin());
-                Material* material = pGeometry->GetMaterialById(id);
-                Q_ASSERT(material != nullptr);
-                material->SetDiffuse(color);
-                material->SetOpacity(opacity);
-            }
+            std::list<NodeKey> ids = pGeometry->GetMaterialIds();
+            auto id = (*ids.begin());
+            Material* material = pGeometry->GetMaterialById(id);
+            Q_ASSERT(material != nullptr);
+            material->SetDiffuse(color);
+            material->SetOpacity(opacity);
         }
     }
 
-    return cylinder;
-}
-
-void createCylinder(SceneSegment* pRootSegment, const Color& color, double opacity) 
-{
-    MathRepresentation* pMathRep = createMathCylinder(color, opacity);
     SceneSegment* pSegment = new SceneSegment(pRootSegment);
-
     SegmentInstance* pSegmentData = new SegmentInstance(pMathRep);
     SceneSegment* pSceneSeg = new SceneSegment(pSegmentData);
-    pSegment->AddSegment(pSceneSeg);
-}
-
-void createParallelepiped(SceneSegment* pRootSegment, const Color& color, double opacity) 
-{
-    MathRepresentation* pMathRep = createMathParallelepiped(color, opacity);
-    SceneSegment* pSegment = new SceneSegment(pRootSegment);
-
-    SegmentInstance* pSegmentData = new SegmentInstance(pMathRep);
-    SceneSegment* pSceneSeg = new SceneSegment(pSegmentData);
+    pSceneSeg->GetTransform().SetMatrix(moveRoot);
     pSegment->AddSegment(pSceneSeg);
 }
 
@@ -132,8 +108,13 @@ int main(int argc, char** argv)
     scene.mainLight()->SetDoubleSided(true);
     scene.graphicsView()->SetSmoothTransition(true);
 
-    //createParallelepiped(rootSegment, VSN::Color(255, 0, 0), 1.0);
-    createCylinder(rootSegment, VSN::Color(255, 0, 0), 1.0);
+    Matrix3DF move1;
+    move1.Move(VSN::Vector3DF(10.0f, 0.0f, 0.0f));
+    createObject(rootSegment, makeParallelepiped(), move1, VSN::Color(255, 0, 0), 1.0);
+
+    Matrix3DF move2;
+    move2.Move(VSN::Vector3DF(40.0f, 0.0f, 0.0f));
+    createObject(rootSegment, makeCylinder(), move2, VSN::Color(255, 0, 0), 1.0);
 
     scene.viewport()->GetCamera()->SetViewOrientation(Orientation::IsoXYZ);
     scene.viewport()->ZoomToFit(scene.sceneContent()->GetBoundingBox());
