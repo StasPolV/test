@@ -58,6 +58,54 @@ MathRepresentation* createMathParallelepiped(const Color& color, double opacity)
     return parallelepiped;
 }
 
+MathRepresentation* createMathCylinder(const Color& color, double opacity) 
+{
+    using namespace c3d;
+    MathRepresentation* cylinder = new MathRepresentation();
+    cylinder->SetBuildType(CommandType::Synchronous);
+
+    SpacePointsVector points;
+    points.reserve(3);
+    points.push_back(MbCartPoint3D(0.0, 0.0, 0.0));
+    points.push_back(MbCartPoint3D(0.0, 5.0, 0.0));
+    points.push_back(MbCartPoint3D(3.0, 0.0, 0.0));
+
+    MbSNameMaker names(2, MbSNameMaker::i_SideNone, 0);
+
+    MbElementarySolidParams params(ElementaryShellType::et_Cylinder, points, names);
+    MbElementarySolidResults results;
+    if (ElementarySolid(params, results) == rt_Success && results.GetResultSolid() != nullptr) 
+    {
+        MbSolid* pSolid = results.GetResultSolid();
+        cylinder->SetMathItem(static_cast<MbItem*>(pSolid));
+        cylinder->SetVisualSag(0.001, true);
+        if (MathGeometry* pGeometry = vobject_cast<MathGeometry*>(cylinder->GetGeomAt(0)))
+        {
+            if (pGeometry->GetMaterialCount() > 0)
+            {
+                std::list<NodeKey> ids = pGeometry->GetMaterialIds();
+                auto id = (*ids.begin());
+                Material* material = pGeometry->GetMaterialById(id);
+                Q_ASSERT(material != nullptr);
+                material->SetDiffuse(color);
+                material->SetOpacity(opacity);
+            }
+        }
+    }
+
+    return cylinder;
+}
+
+void createCylinder(SceneSegment* pRootSegment, const Color& color, double opacity) 
+{
+    MathRepresentation* pMathRep = createMathCylinder(color, opacity);
+    SceneSegment* pSegment = new SceneSegment(pRootSegment);
+
+    SegmentInstance* pSegmentData = new SegmentInstance(pMathRep);
+    SceneSegment* pSceneSeg = new SceneSegment(pSegmentData);
+    pSegment->AddSegment(pSceneSeg);
+}
+
 void createParallelepiped(SceneSegment* pRootSegment, const Color& color, double opacity) 
 {
     MathRepresentation* pMathRep = createMathParallelepiped(color, opacity);
@@ -84,7 +132,8 @@ int main(int argc, char** argv)
     scene.mainLight()->SetDoubleSided(true);
     scene.graphicsView()->SetSmoothTransition(true);
 
-    createParallelepiped(rootSegment, VSN::Color(255, 0, 0), 1.0);
+    //createParallelepiped(rootSegment, VSN::Color(255, 0, 0), 1.0);
+    createCylinder(rootSegment, VSN::Color(255, 0, 0), 1.0);
 
     scene.viewport()->GetCamera()->SetViewOrientation(Orientation::IsoXYZ);
     scene.viewport()->ZoomToFit(scene.sceneContent()->GetBoundingBox());
