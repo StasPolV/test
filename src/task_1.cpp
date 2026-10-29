@@ -81,14 +81,40 @@ c3d::SolidSPtr makeBooleanOperation(const c3d::SolidSPtr& solid1, const c3d::Sol
     return pResSolid;
 }
 
-c3d::SolidSPtr makeFillet(const c3d::SolidSPtr& solid, double radius) 
+c3d::SolidSPtr makeFillet(const c3d::SolidSPtr& solid, double radius, bool allEdges)
 {
     using namespace c3d;
     if (!solid)
         return nullptr;
 
-    c3d::EdgesSPtrVector edges;
-    solid->GetEdges(edges);
+    auto outerEdges = [](const SolidSPtr& solid)
+        {
+            EdgesSPtrVector edges;
+            solid->GetEdges(edges);
+
+            EdgesSPtrVector outerEdges;
+            for (const auto& edge: edges) 
+            {
+                if (edge->IsSeam())
+                    continue;
+
+                const MbFace* f1 = edge->GetFacePlus();
+                const MbFace* f2 = edge->GetFaceMinus();
+                if (f1 == nullptr || f2 == nullptr)
+                    continue;
+
+                if (f1->IsPlanar() && f2->IsPlanar())
+                    outerEdges.push_back(edge);
+            }
+
+            return outerEdges;
+        };
+
+    EdgesSPtrVector edges;
+    if (allEdges)
+        solid->GetEdges(edges);
+    else 
+        edges = outerEdges(solid);
 
     FacesSPtrVector bounds;
 
@@ -169,11 +195,11 @@ int main(int argc, char** argv)
 
     Matrix3DF move4;
     move4.Move(VSN::Vector3DF(55.0f, 0.0f, 0.0f));
-    createObject(rootSegment, makeFillet(cylinder, 1.0), move4, VSN::Color(0, 255, 0), 1.0);
+    createObject(rootSegment, makeFillet(boolean, 0.5, true), move4, VSN::Color(0, 255, 0), 1.0);
 
     Matrix3DF move5;
     move5.Move(VSN::Vector3DF(70.0f, 0.0f, 0.0f));
-    createObject(rootSegment, makeFillet(boolean, 0.5), move5, VSN::Color(0, 255, 0), 1.0);
+    createObject(rootSegment, makeFillet(boolean, 0.5, false), move5, VSN::Color(0, 255, 0), 1.0);
 
     scene.viewport()->GetCamera()->SetViewOrientation(Orientation::IsoXYZ);
     scene.viewport()->ZoomToFit(scene.sceneContent()->GetBoundingBox());
