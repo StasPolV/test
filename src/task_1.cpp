@@ -8,9 +8,9 @@
 const double sideSize = 10.0;
 const double sideOffset = 2.0;
 
-SPtr<MbSolid> makeParallelepiped()
+c3d::SolidSPtr makeParallelepiped()
 {
-    MbContour* pContour2D = new MbContour();
+    SPtr<MbContour> pContour2D(new MbContour());
 
     MbCartPoint p1(0.0, 0.0), p2(sideOffset, sideSize), p3(sideSize + sideOffset, sideSize), p4(sideSize, 0.0), p5(0.0, 0.0);
     SPtr<MbLineSegment> seg1(new MbLineSegment(p1, p2));
@@ -42,14 +42,14 @@ SPtr<MbSolid> makeParallelepiped()
     return SPtr<MbSolid>(pResSolid);
 }
 
-SPtr<MbSolid> makeCylinder()
+c3d::SolidSPtr makeCylinder()
 {
     using namespace c3d;
 
     SpacePointsVector points;
     points.reserve(3);
     points.push_back(MbCartPoint3D(0.0, 0.0, 0.0));
-    points.push_back(MbCartPoint3D(0.0, 5.0, 0.0));
+    points.push_back(MbCartPoint3D(0.0, 25.0, 0.0));
     points.push_back(MbCartPoint3D(3.0, 0.0, 0.0));
 
     MbSNameMaker names(2, MbSNameMaker::i_SideNone, 0);
@@ -59,10 +59,29 @@ SPtr<MbSolid> makeCylinder()
     if (ElementarySolid(params, results) != rt_Success)
         return nullptr;
 
-    return results.GetResultSolid();
+    SolidSPtr pResSolid = results.GetResultSolid();
+    pResSolid->Move(MbVector3D(5.0f, 0.0f, -5.0f));
+    
+    return pResSolid;
 }
 
-void createObject(SceneSegment* pRootSegment, const SPtr<MbSolid>& solid, const Matrix3DF& moveRoot, const Color& color, double opacity) 
+c3d::SolidSPtr makeBooleanOperation(const c3d::SolidSPtr& solid1, const c3d::SolidSPtr& solid2, OperationType opType)
+{
+    using namespace c3d;
+    if (!solid1 || !solid2 || !solid1->IsClosed() || !solid2->IsClosed())
+        return nullptr;
+
+    MbSNameMaker operNames(ct_BooleanSolid, MbSNameMaker::i_SideNone, 0);
+
+    SolidSPtr pResSolid;
+    MbResultType res = BooleanResult(solid1, cm_Copy, solid2, cm_Copy, MbBooleanOperationParams(bo_Difference, true, operNames), pResSolid);
+    if (res != rt_Success) 
+        return nullptr;
+
+    return pResSolid;
+}
+
+void createObject(SceneSegment* pRootSegment, const c3d::SolidSPtr& solid, const Matrix3DF& moveRoot, const Color& color, double opacity) 
 {
     if (!solid)
         return;
@@ -95,6 +114,7 @@ void createObject(SceneSegment* pRootSegment, const SPtr<MbSolid>& solid, const 
 int main(int argc, char** argv)
 {
     using namespace QtVision;
+    using namespace c3d;
 
     auto app = QtApplication::createApplication(argc, argv, "Task1");
     if (!app)
@@ -108,13 +128,21 @@ int main(int argc, char** argv)
     scene.mainLight()->SetDoubleSided(true);
     scene.graphicsView()->SetSmoothTransition(true);
 
+
+    SolidSPtr parallelepiped = makeParallelepiped();
     Matrix3DF move1;
     move1.Move(VSN::Vector3DF(10.0f, 0.0f, 0.0f));
-    createObject(rootSegment, makeParallelepiped(), move1, VSN::Color(255, 0, 0), 1.0);
+    createObject(rootSegment, parallelepiped, move1, VSN::Color(255, 0, 0), 1.0);
 
+    SolidSPtr cylinder = makeCylinder();
     Matrix3DF move2;
-    move2.Move(VSN::Vector3DF(40.0f, 0.0f, 0.0f));
-    createObject(rootSegment, makeCylinder(), move2, VSN::Color(255, 0, 0), 1.0);
+    move2.Move(VSN::Vector3DF(25.0f, 0.0f, 0.0f));
+    createObject(rootSegment, cylinder, move2, VSN::Color(255, 0, 0), 1.0);
+
+    Matrix3DF move3;
+    move3.Move(VSN::Vector3DF(40.0f, 0.0f, 0.0f));
+    createObject(rootSegment, makeBooleanOperation(parallelepiped, cylinder, bo_Difference), move3, VSN::Color(255, 165, 0), 1.0);
+
 
     scene.viewport()->GetCamera()->SetViewOrientation(Orientation::IsoXYZ);
     scene.viewport()->ZoomToFit(scene.sceneContent()->GetBoundingBox());
