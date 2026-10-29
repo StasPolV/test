@@ -81,6 +81,29 @@ c3d::SolidSPtr makeBooleanOperation(const c3d::SolidSPtr& solid1, const c3d::Sol
     return pResSolid;
 }
 
+c3d::SolidSPtr makeFillet(const c3d::SolidSPtr& solid, double radius) 
+{
+    using namespace c3d;
+    if (!solid)
+        return nullptr;
+
+    c3d::EdgesSPtrVector edges;
+    solid->GetEdges(edges);
+
+    FacesSPtrVector bounds;
+
+    SmoothValues params;
+    params.InitEquidistantFillet(radius);
+
+    MbSNameMaker names(ct_FilletSolid, MbSNameMaker::i_SideNone, 0);
+
+    SolidSPtr pResSolid;
+    if (FilletSolid(*solid, cm_Copy, MbShellFilletValues(edges, bounds, params, names), pResSolid) != rt_Success)
+        return nullptr;
+
+    return pResSolid;
+}
+
 void createObject(SceneSegment* pRootSegment, const c3d::SolidSPtr& solid, const Matrix3DF& moveRoot, const Color& color, double opacity) 
 {
     if (!solid)
@@ -139,14 +162,21 @@ int main(int argc, char** argv)
     move2.Move(VSN::Vector3DF(25.0f, 0.0f, 0.0f));
     createObject(rootSegment, cylinder, move2, VSN::Color(255, 0, 0), 1.0);
 
+    SolidSPtr boolean = makeBooleanOperation(parallelepiped, cylinder, bo_Difference);
     Matrix3DF move3;
     move3.Move(VSN::Vector3DF(40.0f, 0.0f, 0.0f));
-    createObject(rootSegment, makeBooleanOperation(parallelepiped, cylinder, bo_Difference), move3, VSN::Color(255, 165, 0), 1.0);
+    createObject(rootSegment, boolean, move3, VSN::Color(255, 165, 0), 1.0);
 
+    Matrix3DF move4;
+    move4.Move(VSN::Vector3DF(55.0f, 0.0f, 0.0f));
+    createObject(rootSegment, makeFillet(cylinder, 1.0), move4, VSN::Color(0, 255, 0), 1.0);
+
+    Matrix3DF move5;
+    move5.Move(VSN::Vector3DF(70.0f, 0.0f, 0.0f));
+    createObject(rootSegment, makeFillet(boolean, 0.5), move5, VSN::Color(0, 255, 0), 1.0);
 
     scene.viewport()->GetCamera()->SetViewOrientation(Orientation::IsoXYZ);
     scene.viewport()->ZoomToFit(scene.sceneContent()->GetBoundingBox());
-    
 
     setWindowPosition(scene);
     scene.show();
