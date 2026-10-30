@@ -2,6 +2,10 @@
 #include <qt_mainwindow.h>
 #include <cur_contour.h>
 #include <action_solid.h>
+#include <action_mesh.h>
+#include <mesh.h>
+#include <mesh_polygon.h>
+#include <mesh_primitive.h>
 
 #include <list>
 
@@ -130,14 +134,47 @@ c3d::SolidSPtr makeFillet(const c3d::SolidSPtr& solid, double radius, bool allEd
     return pResSolid;
 }
 
-void createObject(SceneSegment* pRootSegment, const c3d::SolidSPtr& solid, const Matrix3DF& moveRoot, const Color& color, double opacity) 
+void addTriangleEdges(MbMesh& mesh)
 {
-    if (!solid)
+    for (size_t i = 0; i < mesh.GridsCount(); ++i)
+    {
+        const MbGrid* grid = mesh.GetGrid(i);
+        for (size_t t = 0; t < grid->TrianglesCount(); ++t)
+        {
+            MbCartPoint3D p0, p1, p2;
+            if (!grid->GetTrianglePoints(t, p0, p1, p2))
+                continue;
+
+            MbPolygon3D* edges = mesh.AddPolygon();
+            edges->AddPoint(p0);
+            edges->AddPoint(p1);
+            edges->AddPoint(p2);
+            edges->AddPoint(p0);
+        }
+    }
+}
+
+SPtr<MbMesh> triangulate(const c3d::SolidSPtr& solid, double sag)
+{
+    MbStepData stepData(ist_SpaceStep, sag);
+
+    MbFormNote note(false, true, true, true);
+    SPtr<MbMesh> mesh(new MbMesh(true));
+    if (CalculateMesh(*solid, stepData, note, *mesh) != rt_Success)
+        return nullptr;
+
+    addTriangleEdges(*mesh);
+    return mesh;
+}
+
+void createObject(SceneSegment* pRootSegment, const SPtr<MbItem>& item, const Matrix3DF& moveRoot, const Color& color, double opacity) 
+{
+    if (!item)
         return;
 
     MathRepresentation* pMathRep = new MathRepresentation();
     pMathRep->SetBuildType(CommandType::Synchronous);
-    pMathRep->SetMathItem(solid.get());
+    pMathRep->SetMathItem(item.get());
     pMathRep->SetVisualSag(0.001, true);
 
     if (MathGeometry* pGeometry = vobject_cast<MathGeometry*>(pMathRep->GetGeomAt(0)))
@@ -176,7 +213,7 @@ int main(int argc, char** argv)
     scene.viewport()->SetGradientBackgroundColour(topColor, bottomColor);
     scene.mainLight()->SetDoubleSided(true);
     scene.graphicsView()->SetSmoothTransition(true);
-
+    scene.graphicsView()->SetRenderMode(rm_ShadedWithEdges);
 
     SolidSPtr parallelepiped = makeParallelepiped();
     Matrix3DF move1;
@@ -200,6 +237,18 @@ int main(int argc, char** argv)
     Matrix3DF move5;
     move5.Move(VSN::Vector3DF(70.0f, 0.0f, 0.0f));
     createObject(rootSegment, makeFillet(boolean, 0.5, false), move5, VSN::Color(0, 255, 0), 1.0);
+
+    Matrix3DF move6;
+    move6.Move(VSN::Vector3DF(85.0f, 0.0f, 0.0f));
+    createObject(rootSegment, triangulate(cylinder, 1.0), move6, VSN::Color(0, 0, 255), 1.0);
+
+    Matrix3DF move7;
+    move7.Move(VSN::Vector3DF(100.0f, 0.0f, 0.0f));
+    createObject(rootSegment, triangulate(cylinder, 0.1), move7, VSN::Color(0, 0, 255), 1.0);
+
+    Matrix3DF move8;
+    move8.Move(VSN::Vector3DF(115.0f, 0.0f, 0.0f));
+    createObject(rootSegment, triangulate(boolean, 0.3), move8, VSN::Color(0, 0, 255), 1.0);
 
     scene.viewport()->GetCamera()->SetViewOrientation(Orientation::IsoXYZ);
     scene.viewport()->ZoomToFit(scene.sceneContent()->GetBoundingBox());
