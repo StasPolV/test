@@ -3,9 +3,12 @@
 #include <cur_contour.h>
 #include <action_solid.h>
 #include <action_mesh.h>
+#include <action_polymesh.h>
 #include <mesh.h>
 #include <mesh_polygon.h>
 #include <mesh_primitive.h>
+#include <polymesh.h>
+#include <op_polymesh_parameter.h>
 
 #include <list>
 
@@ -167,6 +170,46 @@ SPtr<MbMesh> triangulate(const c3d::SolidSPtr& solid, double sag)
     return mesh;
 }
 
+void detachFromSource(MbMesh& mesh)
+{
+    mesh.SetRefItem(nullptr);
+    for (size_t i = 0; i < mesh.GridsCount(); ++i)
+        mesh.SetGrid(i)->SetItem(nullptr);
+    for (size_t i = 0; i < mesh.PolygonsCount(); ++i)
+        mesh.SetPolygon(i)->SetItem(nullptr);
+    for (size_t i = 0; i < mesh.ApexesCount(); ++i)
+        mesh.SetApex(i)->SetItem(nullptr);
+}
+
+SPtr<MbMesh> remesh(const c3d::SolidSPtr& solid, double sag, double targetLength)
+{
+    if (!solid)
+        return nullptr;
+
+    SPtr<MbPolymesh> poly(new MbPolymesh());
+    MbShellLinearizationParams linParams(MbStepData(ist_SpaceStep, sag), true, false, false,
+        std::vector<c3d::IndicesVector>(), c3d::IndicesVector());
+    MbShellLinearizationResults linResults;
+    if (CreatePolymeshByShell(linParams, *solid->GetShell(), *poly, linResults) != rt_Success)
+        return nullptr;
+
+    MbRemeshParams params;                                        
+    params.InitIncrementalUniform(targetLength, c3d::IndicesVector());
+    if (Remesh(params, *poly) != rt_Success)
+        return nullptr;
+
+    if (CalculatePolymeshNormals(MbPolymeshNormalsParams(true), *poly) != rt_Success)
+        return nullptr;
+
+    SPtr<MbMesh> mesh(new MbMesh(true));
+    if (CalculateMesh(*poly, MbStepData(), MbFormNote(false, true, true, true), *mesh) != rt_Success)
+        return nullptr;
+
+    detachFromSource(*mesh);
+    addTriangleEdges(*mesh);
+    return mesh;
+}
+
 void createObject(SceneSegment* pRootSegment, const SPtr<MbItem>& item, const Matrix3DF& moveRoot, const Color& color, double opacity) 
 {
     if (!item)
@@ -249,6 +292,14 @@ int main(int argc, char** argv)
     Matrix3DF move8;
     move8.Move(VSN::Vector3DF(115.0f, 0.0f, 0.0f));
     createObject(rootSegment, triangulate(boolean, 0.3), move8, VSN::Color(0, 0, 255), 1.0);
+
+    Matrix3DF move9;
+    move9.Move(VSN::Vector3DF(130.0f, 0.0f, 0.0f));
+    createObject(rootSegment, remesh(cylinder, 1.0, 1.5), move9, VSN::Color(255, 0, 255), 1.0);
+
+    Matrix3DF move10;
+    move10.Move(VSN::Vector3DF(145.0f, 0.0f, 0.0f));
+    createObject(rootSegment, remesh(boolean, 0.3, 0.5), move10, VSN::Color(255, 0, 255), 1.0);
 
     scene.viewport()->GetCamera()->SetViewOrientation(Orientation::IsoXYZ);
     scene.viewport()->ZoomToFit(scene.sceneContent()->GetBoundingBox());
