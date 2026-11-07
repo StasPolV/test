@@ -10,6 +10,12 @@
 #include <polymesh.h>
 #include <op_polymesh_parameter.h>
 
+#include <action_curve3d.h>
+#include <op_swept_parameter.h>
+#include <op_shell_parameter.h>
+#include <gce_api.h>
+#include <QDebug>
+
 #include <list>
 
 const double sideSize = 10.0;
@@ -68,7 +74,7 @@ c3d::SolidSPtr makeCylinder()
 
     SolidSPtr pResSolid = results.GetResultSolid();
     pResSolid->Move(MbVector3D(5.0f, 0.0f, -5.0f));
-    
+
     return pResSolid;
 }
 
@@ -82,7 +88,7 @@ c3d::SolidSPtr makeBooleanOperation(const c3d::SolidSPtr& solid1, const c3d::Sol
 
     SolidSPtr pResSolid;
     MbResultType res = BooleanResult(solid1, cm_Copy, solid2, cm_Copy, MbBooleanOperationParams(bo_Difference, true, operNames), pResSolid);
-    if (res != rt_Success) 
+    if (res != rt_Success)
         return nullptr;
 
     return pResSolid;
@@ -100,7 +106,7 @@ c3d::SolidSPtr makeFillet(const c3d::SolidSPtr& solid, double radius, bool allEd
             solid->GetEdges(edges);
 
             EdgesSPtrVector outerEdges;
-            for (const auto& edge: edges) 
+            for (const auto& edge : edges)
             {
                 if (edge->IsSeam())
                     continue;
@@ -120,7 +126,7 @@ c3d::SolidSPtr makeFillet(const c3d::SolidSPtr& solid, double radius, bool allEd
     EdgesSPtrVector edges;
     if (allEdges)
         solid->GetEdges(edges);
-    else 
+    else
         edges = outerEdges(solid);
 
     FacesSPtrVector bounds;
@@ -132,6 +138,121 @@ c3d::SolidSPtr makeFillet(const c3d::SolidSPtr& solid, double radius, bool allEd
 
     SolidSPtr pResSolid;
     if (FilletSolid(*solid, cm_Copy, MbShellFilletValues(edges, bounds, params, names), pResSolid) != rt_Success)
+        return nullptr;
+
+    return pResSolid;
+}
+
+GCE_point gcePoint(double x, double y)
+{
+    GCE_point p;
+    p.x = x;
+    p.y = y;
+    return p;
+}
+
+SPtr<MbContour> makeRhombus(double side, double angleDeg)
+{
+    GCE_system sys = GCE_CreateSystem();
+
+    geom_item a = GCE_AddPoint(sys, gcePoint(0.0, 0.0));
+    geom_item b = GCE_AddPoint(sys, gcePoint(side, 0.0));
+    geom_item c = GCE_AddPoint(sys, gcePoint(side * 1.5, side));
+    geom_item d = GCE_AddPoint(sys, gcePoint(side * 0.5, side));
+
+    geom_item ab[2] = { a, b }, bc[2] = { b, c }, cd[2] = { c, d }, ad[2] = { a, d };
+    geom_item segAB = GCE_AddLineSeg(sys, ab);
+    geom_item segBC = GCE_AddLineSeg(sys, bc);
+    geom_item segCD = GCE_AddLineSeg(sys, cd);
+    geom_item segAD = GCE_AddLineSeg(sys, ad);
+
+    GCE_FixGeom(sys, a);
+    GCE_AddUnaryConstraint(sys, GCE_HORIZONTAL, segAB);
+
+    GCE_dim_pars length;
+    length.dimValue = side;
+    GCE_AddLength(sys, segAB, length);
+
+    GCE_AddEqualLength(sys, segAB, segAD);
+
+    geom_item parallelABCD[2] = { segAB, segCD };
+    GCE_AddParallel(sys, parallelABCD);
+
+    geom_item parallelADBC[2] = { segAD, segBC };
+    GCE_AddParallel(sys, parallelADBC);
+
+    GCE_adim_pars angle;
+    angle.dPars.dimValue = angleDeg * M_PI / 180.0;
+    GCE_AddAngle(sys, segAB, segAD, angle);
+
+    GCE_result result = GCE_Evaluate(sys);
+    if (result != GCE_RESULT_Ok || GCE_DefinitionState(sys) != GCE_STATE_WellConstrained)
+    {
+        qDebug() << "Rhombus solver failed, result:" << static_cast<int>(result)
+            << "state:" << static_cast<int>(GCE_DefinitionState(sys));
+        GCE_RemoveSystem(sys);
+        return nullptr;
+    }
+
+    GCE_point pa = GCE_GetPointXY(sys, a);
+    GCE_point pb = GCE_GetPointXY(sys, b);
+    GCE_point pc = GCE_GetPointXY(sys, c);
+    GCE_point pd = GCE_GetPointXY(sys, d);
+    GCE_RemoveSystem(sys);
+
+    MbVector toCenter(-(pa.x + pc.x) * 0.5, -(pa.y + pc.y) * 0.5);
+    MbCartPoint p1(pa.x, pa.y), p2(pb.x, pb.y), p3(pc.x, pc.y), p4(pd.x, pd.y);
+
+    SPtr<MbContour> contour(new MbContour());
+    contour->AddSegment(SPtr<MbLineSegment>(new MbLineSegment(p1, p2)));
+    contour->AddSegment(SPtr<MbLineSegment>(new MbLineSegment(p2, p3)));
+    contour->AddSegment(SPtr<MbLineSegment>(new MbLineSegment(p3, p4)));
+    contour->AddSegment(SPtr<MbLineSegment>(new MbLineSegment(p4, p1)));
+    contour->Move(toCenter);
+    return contour;
+}
+
+const double helixRadius = 5.0;
+const double helixHeight = 25.0;
+const double helixStep = 5.0;
+
+SPtr<MbCurve3D> makeHelix()
+{
+    MbCurve3D* pHelix = nullptr;
+    MbResultType res = SpiralCurve(MbCartPoint3D(0.0, 0.0, 0.0),
+        MbCartPoint3D(0.0, helixHeight, 0.0),
+        MbCartPoint3D(1.0, 0.0, 0.0),
+        helixRadius, helixStep, 0.0,
+        nullptr, false, pHelix);
+    if (res != rt_Success)
+        return nullptr;
+
+    return SPtr<MbCurve3D>(pHelix);
+}
+
+c3d::SolidSPtr makeHelixSweep(double side, double angleDeg)
+{
+    using namespace c3d;
+
+    SPtr<MbContour> rhombus = makeRhombus(side, angleDeg);
+    SPtr<MbCurve3D> helix = makeHelix();
+    if (!rhombus || !helix)
+        return nullptr;
+
+    MbCartPoint3D start;
+    helix->GetLimitPoint(1, start);
+    MbPlacement3D profilePlace(start, MbVector3D(0.0, 0.0, 1.0), MbVector3D(1.0, 0.0, 0.0));
+    MbSweptData sweptData(profilePlace, *rhombus);
+
+    EvolutionValues params;
+
+    MbSNameMaker operNames(ct_CurveEvolutionSolid, MbSNameMaker::i_SideNone, 0);
+    RPArray<MbSNameMaker> contourNames(0, 1);
+    MbSNameMaker spineNames(ct_CurveEvolutionSolid, MbSNameMaker::i_SideNone, 0);
+
+    SolidSPtr pResSolid;
+    MbEvolutionShellParams evolParams(sweptData, *helix, params, operNames, contourNames, spineNames);
+    if (EvolutionShell(evolParams, pResSolid) != rt_Success)
         return nullptr;
 
     return pResSolid;
@@ -193,7 +314,7 @@ SPtr<MbMesh> remesh(const c3d::SolidSPtr& solid, double sag, double targetLength
     if (CreatePolymeshByShell(linParams, *solid->GetShell(), *poly, linResults) != rt_Success)
         return nullptr;
 
-    MbRemeshParams params;                                        
+    MbRemeshParams params;
     params.InitIncrementalUniform(targetLength, c3d::IndicesVector());
     if (Remesh(params, *poly) != rt_Success)
         return nullptr;
@@ -210,7 +331,7 @@ SPtr<MbMesh> remesh(const c3d::SolidSPtr& solid, double sag, double targetLength
     return mesh;
 }
 
-void createObject(SceneSegment* pRootSegment, const SPtr<MbItem>& item, const Matrix3DF& moveRoot, const Color& color, double opacity) 
+void createObject(SceneSegment* pRootSegment, const SPtr<MbItem>& item, const Matrix3DF& moveRoot, const Color& color, double opacity)
 {
     if (!item)
         return;
@@ -301,11 +422,19 @@ int main(int argc, char** argv)
     move10.Move(VSN::Vector3DF(145.0f, 0.0f, 0.0f));
     createObject(rootSegment, remesh(boolean, 0.3, 0.5), move10, VSN::Color(255, 0, 255), 1.0);
 
+    Matrix3DF move11;
+    move11.Move(VSN::Vector3DF(165.0f, 0.0f, 0.0f));
+    createObject(rootSegment, makeHelixSweep(2.0, 30.0), move11, VSN::Color(0, 200, 200), 1.0);
+
+    Matrix3DF move12;
+    move12.Move(VSN::Vector3DF(185.0f, 0.0f, 0.0f));
+    createObject(rootSegment, makeHelixSweep(1.0, 40.0), move12, VSN::Color(0, 200, 200), 1.0);
+
     scene.viewport()->GetCamera()->SetViewOrientation(Orientation::IsoXYZ);
     scene.viewport()->ZoomToFit(scene.sceneContent()->GetBoundingBox());
 
     setWindowPosition(scene);
     scene.show();
+
     return app->exec();
 }
-
