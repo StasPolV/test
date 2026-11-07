@@ -97,7 +97,7 @@ c3d::SolidSPtr makeBooleanOperation(const c3d::SolidSPtr& solid1, const c3d::Sol
     MbSNameMaker operNames(ct_BooleanSolid, MbSNameMaker::i_SideNone, 0);
 
     SolidSPtr pResSolid;
-    MbResultType res = BooleanResult(solid1, cm_Copy, solid2, cm_Copy, MbBooleanOperationParams(bo_Difference, true, operNames), pResSolid);
+    MbResultType res = BooleanResult(solid1, cm_Copy, solid2, cm_Copy, MbBooleanOperationParams(opType, true, operNames), pResSolid);
     if (res != rt_Success)
     {
         qDebug() << "Boolean operation failed, result:" << static_cast<int>(res);
