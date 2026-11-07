@@ -50,7 +50,10 @@ c3d::SolidSPtr makeParallelepiped()
     MbSolid* pResSolid = nullptr;
     MbResultType result = ExtrusionSolid(pCurves, extDir, nullptr, nullptr, false, pExtParams, names, contourNames, pResSolid);
     if (result != rt_Success)
+    {
+        qDebug() << "Parallelepiped extrusion failed, result:" << static_cast<int>(result);
         return nullptr;
+    }
 
     return SPtr<MbSolid>(pResSolid);
 }
@@ -69,8 +72,12 @@ c3d::SolidSPtr makeCylinder()
 
     MbElementarySolidParams params(ElementaryShellType::et_Cylinder, points, names);
     MbElementarySolidResults results;
-    if (ElementarySolid(params, results) != rt_Success)
+    MbResultType result = ElementarySolid(params, results);
+    if (result != rt_Success)
+    {
+        qDebug() << "Cylinder creation failed, result:" << static_cast<int>(result);
         return nullptr;
+    }
 
     SolidSPtr pResSolid = results.GetResultSolid();
     pResSolid->Move(MbVector3D(5.0f, 0.0f, -5.0f));
@@ -82,14 +89,20 @@ c3d::SolidSPtr makeBooleanOperation(const c3d::SolidSPtr& solid1, const c3d::Sol
 {
     using namespace c3d;
     if (!solid1 || !solid2 || !solid1->IsClosed() || !solid2->IsClosed())
+    {
+        qDebug() << "Boolean operation failed: operands are null or not closed";
         return nullptr;
+    }
 
     MbSNameMaker operNames(ct_BooleanSolid, MbSNameMaker::i_SideNone, 0);
 
     SolidSPtr pResSolid;
     MbResultType res = BooleanResult(solid1, cm_Copy, solid2, cm_Copy, MbBooleanOperationParams(bo_Difference, true, operNames), pResSolid);
     if (res != rt_Success)
+    {
+        qDebug() << "Boolean operation failed, result:" << static_cast<int>(res);
         return nullptr;
+    }
 
     return pResSolid;
 }
@@ -98,7 +111,10 @@ c3d::SolidSPtr makeFillet(const c3d::SolidSPtr& solid, double radius, bool allEd
 {
     using namespace c3d;
     if (!solid)
+    {
+        qDebug() << "Fillet failed: source solid is null";
         return nullptr;
+    }
 
     auto outerEdges = [](const SolidSPtr& solid)
         {
@@ -137,8 +153,13 @@ c3d::SolidSPtr makeFillet(const c3d::SolidSPtr& solid, double radius, bool allEd
     MbSNameMaker names(ct_FilletSolid, MbSNameMaker::i_SideNone, 0);
 
     SolidSPtr pResSolid;
-    if (FilletSolid(*solid, cm_Copy, MbShellFilletValues(edges, bounds, params, names), pResSolid) != rt_Success)
+    MbResultType result = FilletSolid(*solid, cm_Copy, MbShellFilletValues(edges, bounds, params, names), pResSolid);
+    if (result != rt_Success)
+    {
+        qDebug() << "Fillet failed, result:" << static_cast<int>(result)
+            << "edges:" << static_cast<int>(edges.size());
         return nullptr;
+    }
 
     return pResSolid;
 }
@@ -225,7 +246,10 @@ SPtr<MbCurve3D> makeHelix()
         helixRadius, helixStep, 0.0,
         nullptr, false, pHelix);
     if (res != rt_Success)
+    {
+        qDebug() << "Helix creation failed, result:" << static_cast<int>(res);
         return nullptr;
+    }
 
     return SPtr<MbCurve3D>(pHelix);
 }
@@ -237,7 +261,10 @@ c3d::SolidSPtr makeHelixSweep(double side, double angleDeg)
     SPtr<MbContour> rhombus = makeRhombus(side, angleDeg);
     SPtr<MbCurve3D> helix = makeHelix();
     if (!rhombus || !helix)
+    {
+        qDebug() << "Helix sweep failed: rhombus or helix is null";
         return nullptr;
+    }
 
     MbCartPoint3D start;
     helix->GetLimitPoint(1, start);
@@ -252,8 +279,13 @@ c3d::SolidSPtr makeHelixSweep(double side, double angleDeg)
 
     SolidSPtr pResSolid;
     MbEvolutionShellParams evolParams(sweptData, *helix, params, operNames, contourNames, spineNames);
-    if (EvolutionShell(evolParams, pResSolid) != rt_Success)
+    MbResultType result = EvolutionShell(evolParams, pResSolid);
+    if (result != rt_Success)
+    {
+        qDebug() << "Helix sweep failed, result:" << static_cast<int>(result)
+            << "side:" << side << "angle:" << angleDeg;
         return nullptr;
+    }
 
     return pResSolid;
 }
@@ -284,8 +316,12 @@ SPtr<MbMesh> triangulate(const c3d::SolidSPtr& solid, double sag)
 
     MbFormNote note(false, true, true, true);
     SPtr<MbMesh> mesh(new MbMesh(true));
-    if (CalculateMesh(*solid, stepData, note, *mesh) != rt_Success)
+    MbResultType result = CalculateMesh(*solid, stepData, note, *mesh);
+    if (result != rt_Success)
+    {
+        qDebug() << "Triangulation failed, result:" << static_cast<int>(result) << "sag:" << sag;
         return nullptr;
+    }
 
     addTriangleEdges(*mesh);
     return mesh;
@@ -305,26 +341,45 @@ void detachFromSource(MbMesh& mesh)
 SPtr<MbMesh> remesh(const c3d::SolidSPtr& solid, double sag, double targetLength)
 {
     if (!solid)
+    {
+        qDebug() << "Remesh failed: source solid is null";
         return nullptr;
+    }
 
     SPtr<MbPolymesh> poly(new MbPolymesh());
     MbShellLinearizationParams linParams(MbStepData(ist_SpaceStep, sag), true, false, false,
         std::vector<c3d::IndicesVector>(), c3d::IndicesVector());
     MbShellLinearizationResults linResults;
-    if (CreatePolymeshByShell(linParams, *solid->GetShell(), *poly, linResults) != rt_Success)
+    MbResultType result = CreatePolymeshByShell(linParams, *solid->GetShell(), *poly, linResults);
+    if (result != rt_Success)
+    {
+        qDebug() << "Polymesh creation failed, result:" << static_cast<int>(result) << "sag:" << sag;
         return nullptr;
+    }
 
     MbRemeshParams params;
     params.InitIncrementalUniform(targetLength, c3d::IndicesVector());
-    if (Remesh(params, *poly) != rt_Success)
+    result = Remesh(params, *poly);
+    if (result != rt_Success)
+    {
+        qDebug() << "Remesh failed, result:" << static_cast<int>(result) << "target length:" << targetLength;
         return nullptr;
+    }
 
-    if (CalculatePolymeshNormals(MbPolymeshNormalsParams(true), *poly) != rt_Success)
+    result = CalculatePolymeshNormals(MbPolymeshNormalsParams(true), *poly);
+    if (result != rt_Success)
+    {
+        qDebug() << "Polymesh normals calculation failed, result:" << static_cast<int>(result);
         return nullptr;
+    }
 
     SPtr<MbMesh> mesh(new MbMesh(true));
-    if (CalculateMesh(*poly, MbStepData(), MbFormNote(false, true, true, true), *mesh) != rt_Success)
+    result = CalculateMesh(*poly, MbStepData(), MbFormNote(false, true, true, true), *mesh);
+    if (result != rt_Success)
+    {
+        qDebug() << "Polymesh to mesh conversion failed, result:" << static_cast<int>(result);
         return nullptr;
+    }
 
     detachFromSource(*mesh);
     addTriangleEdges(*mesh);
@@ -334,7 +389,10 @@ SPtr<MbMesh> remesh(const c3d::SolidSPtr& solid, double sag, double targetLength
 void createObject(SceneSegment* pRootSegment, const SPtr<MbItem>& item, const Matrix3DF& moveRoot, const Color& color, double opacity)
 {
     if (!item)
+    {
+        qDebug() << "createObject skipped: item is null";
         return;
+    }
 
     MathRepresentation* pMathRep = new MathRepresentation();
     pMathRep->SetBuildType(CommandType::Synchronous);
